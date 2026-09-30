@@ -31,7 +31,7 @@ class WallFollowNode(Node):
     def __init__(self):
         super().__init__("wall_follow_node")
 
-        self.create_subscription(LaserScan, "autodrive/roboracer_1/lidar", self.lidar_callback, 10)
+        self.create_subscription(LaserScan, "/scan", self.lidar_callback, 10)
 
         self.drive_pub = self.create_publisher(AckermannDriveStamped, "drive", 10)
 
