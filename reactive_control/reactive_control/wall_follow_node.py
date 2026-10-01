@@ -11,9 +11,9 @@ THETA_DEG = 60
 LOOKAHEAD = 0.6  # m
 DESIRED_DISTANCE_FROM_WALL = 0.8  # m
 INTEGRAL_WINDOW_SIZE = 10
-KP = 0.0    # 0 à 2.5
-KI = 0.0    # 0 à 0.5, facultatif, crée un effet de lag sur le contrôle de l'erreur
-KD = 0.0    # 0.01 à 0.1
+KP = 0.0  # 0 à 2.5
+KI = 0.0  # 0 à 0.5, facultatif, crée un effet de lag sur le contrôle de l'erreur
+KD = 0.0  # 0.01 à 0.1
 
 
 def angle_to_distance(
@@ -57,6 +57,8 @@ class WallFollowNode(Node):
         self.last_steering = 0.0
         self.last_errors_window = np.array([])
 
+        self.get_logger().info(f"{self.get_name()} is currently running!")
+
     def lidar_callback(self, scan: LaserScan):
         """Traite un nouveau scan LiDAR et en déduit la commande de pilotage.
 
@@ -72,15 +74,32 @@ class WallFollowNode(Node):
         lidar_range_array: list[float] = scan.ranges  # type: ignore
         angle_min = scan.angle_min
         angle_increment = scan.angle_increment
-        
+        current_time = self.get_clock().now().nanoseconds
+
         # 1. TODO: Récupérer les distances LiDAR à deux angles de détection du mur
-        
+        #          Si une distance est invalide (fonction is_valid_lidar_scan), répéter la dernière commande
+
         # 2. TODO: Calculer la distance effective au mur et l'erreur relative à la distance désirée
-        
+
         # 3. TODO: Calcul de PID
-        
-        # 4. TODO: Mettre à jour les variables d'état
-        
+        #   - Première itération : pas de dt ni d'erreur
+        #   - Sinon, calculer:
+        #       dt = différence de temps
+        #       de = l'erreur depuis le dernier scan
+
+        #   - Terme proportionnel: différence avec la distance désirée
+
+        #   - Terme dérivé: variation de l'erreur depuis le dernier scan
+
+        #   - Terme intégral: utiliser une approximation numérique avec self.last_errors_window
+
+        #   - Combiner les trois termes avec KP, KI, KD pour obtenir le steering.
+
+        #   - Tuning (faire en dernier): commencer avec KP seul (KI = KD = 0), monter jusqu'aux
+        #     oscillations, puis ajoute KD pour les amortir. KI en dernier (si nécessaire).
+
+        # 4. TODO: Mettre à jour les variables d'état (self.last_steering, self.last_time, self.last_errors_window)
+
         # 5. TODO: Ajuster la vitesse en fonction de l'angle de braquage (steering) pour éviter les collisions
 
         self.send_control_command(throttle, steering)
