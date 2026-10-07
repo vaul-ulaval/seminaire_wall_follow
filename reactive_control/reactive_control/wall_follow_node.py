@@ -9,11 +9,11 @@ from sensor_msgs.msg import LaserScan
 # Lab constants
 THETA_DEG = 60
 LOOKAHEAD = 0.6  # m
-DESIRED_DISTANCE_FROM_WALL = 0.8  # m
+DESIRED_DISTANCE_FROM_WALL = 0.5  # m
 INTEGRAL_WINDOW_SIZE = 10
-KP = 0.0  # 0 à 2.5
-KI = 0.0  # 0 à 0.5, facultatif, crée un effet de lag sur le contrôle de l'erreur
-KD = 0.0  # 0.01 à 0.1
+KP = 1.2    # 0 à 2.5
+KI = 0.0    # 0 à 0.5, facultatif, crée un effet de lag sur le contrôle de l'erreur
+KD = 0.0    # 0.01 à 0.1
 
 
 def angle_to_distance(
@@ -27,8 +27,10 @@ def angle_to_distance(
     La fonction convertit un angle absolu du laser en index dans le tableau de
     mesures, puis renvoie la distance correspondante. Retourne math.inf si l'angle est hors de portée du scan LiDAR.
     """
-    # TODO: Convertir l'angle radian en index dans le tableau lidar_array
-    pass
+    index = int((theta_rad - angle_min) / angle_increment)
+    distance = lidar_array[index]
+
+    return distance
 
 
 def is_valid_lidar_scan(scan: float) -> bool:
@@ -57,8 +59,6 @@ class WallFollowNode(Node):
         self.last_steering = 0.0
         self.last_errors_window = np.array([])
 
-        self.get_logger().info(f"{self.get_name()} is currently running!")
-
     def lidar_callback(self, scan: LaserScan):
         """Traite un nouveau scan LiDAR et en déduit la commande de pilotage.
 
@@ -74,33 +74,56 @@ class WallFollowNode(Node):
         lidar_range_array: list[float] = scan.ranges  # type: ignore
         angle_min = scan.angle_min
         angle_increment = scan.angle_increment
-        current_time = self.get_clock().now().nanoseconds
 
         # 1. TODO: Récupérer les distances LiDAR à deux angles de détection du mur
-        #          Si une distance est invalide (fonction is_valid_lidar_scan), répéter la dernière commande
+        theta = np.radians(THETA_DEG)
+        theta_b = -np.pi / 2.0
+        theta_a = theta_b + theta
 
         # 2. TODO: Calculer la distance effective au mur et l'erreur relative à la distance désirée
+        a = angle_to_distance(theta_a, lidar_range_array, angle_min, angle_increment)
+        b = angle_to_distance(theta_b, lidar_range_array, angle_min, angle_increment)
+
+        if not is_valid_lidar_scan(a) or not is_valid_lidar_scan(b):
+            self.get_logger().warn("Invalid lidar scan, repeating last command")
+            self.send_control_command(throttle, self.last_steering)
+            return
 
         # 3. TODO: Calcul de PID
-        #   - Première itération : pas de dt ni d'erreur
-        #   - Sinon, calculer:
-        #       dt = différence de temps
-        #       de = l'erreur depuis le dernier scan
 
-        #   - Terme proportionnel: différence avec la distance désirée
+        alpha = math.atan((a * math.cos(theta) - b) / (a * math.sin(theta)))
+        D_t = b * math.cos(alpha)
+        D_tp1 = D_t + LOOKAHEAD * math.sin(alpha)
 
-        #   - Terme dérivé: variation de l'erreur depuis le dernier scan
+        error = DESIRED_DISTANCE_FROM_WALL - D_tp1
 
-        #   - Terme intégral: utiliser une approximation numérique avec self.last_errors_window
+        # PID control
+        if self.last_time is None:
+            error_diff = 0.0
+            error_integral = 0.0
+        else:
+            dt = self.get_clock().now().nanoseconds - self.last_time
+            de = error - self.last_errors_window[-1]
+            error_diff = de / dt
+            error_integral = np.sum(self.last_errors_window) * dt
 
-        #   - Combiner les trois termes avec KP, KI, KD pour obtenir le steering.
+        steering = error * KP + error_integral * KI + error_diff * KD
 
-        #   - Tuning (faire en dernier): commencer avec KP seul (KI = KD = 0), monter jusqu'aux
-        #     oscillations, puis ajoute KD pour les amortir. KI en dernier (si nécessaire).
-
-        # 4. TODO: Mettre à jour les variables d'état (self.last_steering, self.last_time, self.last_errors_window)
+        # 4. TODO: Mettre à jour les variables d'état
+        self.last_steering = steering
+        self.last_time = self.get_clock().now().nanoseconds
+        if len(self.last_errors_window) >= INTEGRAL_WINDOW_SIZE:
+            self.last_errors_window[:-1] = self.last_errors_window[1:]
+            self.last_errors_window[-1] = error
+        else:
+            self.last_errors_window = np.append(self.last_errors_window, error)
 
         # 5. TODO: Ajuster la vitesse en fonction de l'angle de braquage (steering) pour éviter les collisions
+        min_throttle = 0.6
+        max_throttle = 5.0
+
+        throttle = max_throttle - abs(steering)
+        throttle = max(throttle, min_throttle)
 
         self.send_control_command(throttle, steering)
 
