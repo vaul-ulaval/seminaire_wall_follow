@@ -8,12 +8,13 @@ from sensor_msgs.msg import LaserScan
 
 # Lab constants
 THETA_DEG = 60
-LOOKAHEAD = 0.6  # m
-DESIRED_DISTANCE_FROM_WALL = 0.5  # m
+LOOKAHEAD = 0.4  # m
+DESIRED_DISTANCE_FROM_WALL = 0.6  # m
 INTEGRAL_WINDOW_SIZE = 10
-KP = 1.2    # 0 à 2.5
-KI = 0.0    # 0 à 0.5, facultatif, crée un effet de lag sur le contrôle de l'erreur
-KD = 0.0    # 0.01 à 0.1
+KP = 2.0  # 0 à 2.5
+KI = 0.0  # 0 à 0.5, facultatif, crée un effet de lag sur le contrôle de l'erreur
+KD = 0.0  # 0.01 à 0.1
+STEERING_THROTTLE_DECAY = 2.0
 
 
 def angle_to_distance(
@@ -69,7 +70,7 @@ class WallFollowNode(Node):
         - publie la commande de vitesse et de direction.
         """
         steering = 0.0  # rad
-        throttle = 2.2  # m/s
+        throttle = 1.0  # m/s
 
         lidar_range_array: list[float] = scan.ranges  # type: ignore
         angle_min = scan.angle_min
@@ -90,8 +91,8 @@ class WallFollowNode(Node):
             return
 
         # 3. TODO: Calcul de PID
-
-        alpha = math.atan((a * math.cos(theta) - b) / (a * math.sin(theta)))
+        div = a * math.sin(theta)
+        alpha = math.atan((a * math.cos(theta) - b) / div if div != 0 else 0.1)
         D_t = b * math.cos(alpha)
         D_tp1 = D_t + LOOKAHEAD * math.sin(alpha)
 
@@ -119,10 +120,10 @@ class WallFollowNode(Node):
             self.last_errors_window = np.append(self.last_errors_window, error)
 
         # 5. TODO: Ajuster la vitesse en fonction de l'angle de braquage (steering) pour éviter les collisions
-        min_throttle = 0.6
-        max_throttle = 5.0
+        min_throttle = 1.75
+        max_throttle = 6.0
 
-        throttle = max_throttle - abs(steering)
+        throttle = max_throttle * math.exp(-STEERING_THROTTLE_DECAY * abs(steering))
         throttle = max(throttle, min_throttle)
 
         self.send_control_command(throttle, steering)
